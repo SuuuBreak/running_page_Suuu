@@ -1,3 +1,41 @@
+import sys
+import locale
+
+# ========================================================
+# Windows 系统全能兼容补丁 (by Code Interpreter)
+# 作用：模拟 Linux 的 locale 功能，解决所有 AttributeError
+# ========================================================
+if sys.platform.startswith('win'):
+    # 1. 定义 Linux 特有的日期常量和对应的值
+    _linux_locale_mock = {
+        'MON_1': 'Jan', 'MON_2': 'Feb', 'MON_3': 'Mar', 'MON_4': 'Apr',
+        'MON_5': 'May', 'MON_6': 'Jun', 'MON_7': 'Jul', 'MON_8': 'Aug',
+        'MON_9': 'Sep', 'MON_10': 'Oct', 'MON_11': 'Nov', 'MON_12': 'Dec',
+        'DAY_1': 'Sun', 'DAY_2': 'Mon', 'DAY_3': 'Tue', 'DAY_4': 'Wed',
+        'DAY_5': 'Thu', 'DAY_6': 'Fri', 'DAY_7': 'Sat',
+        'D_FMT': '%m/%d/%y', 'd_t_fmt': '%a %b %e %H:%M:%S %Y',
+        'RADIXCHAR': '.', 'THOUSEP': ','
+    }
+
+    # 2. 创建一个映射表，用于欺骗 nl_langinfo 函数
+    _id_map = {}
+    # 从一个很大的数字开始，避免冲突
+    _mock_id_start = 10000 
+    
+    for name, text_val in _linux_locale_mock.items():
+        # 如果系统里没有这个常量（比如 MON_1），我们就自己造一个
+        if not hasattr(locale, name):
+            setattr(locale, name, _mock_id_start)
+            _id_map[_mock_id_start] = text_val
+            _mock_id_start += 1
+
+    # 3. 模拟 nl_langinfo 函数
+    # 当代码调用这个函数时，我们返回上面准备好的文本
+    if not hasattr(locale, 'nl_langinfo'):
+        def mock_nl_langinfo(key):
+            return _id_map.get(key, "")
+        locale.nl_langinfo = mock_nl_langinfo
+# ========================================================
 import argparse
 import logging
 import os
