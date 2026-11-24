@@ -1,0 +1,102 @@
+.city-navigation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 14px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+}
+.city-navigation button {
+  color: var(--accent);
+  background: transparent;
+  text-align: left;
+}
+.city-navigation select {
+  max-width: 62%;
+  border: 1px solid var(--line);
+  color: var(--ink);
+  background: var(--panel);
+  padding: 6px 8px;
+  font: inherit;
+}
+.city-marker-target {
+  fill: transparent;
+  cursor: pointer;
+}
+.city-marker-target:hover + circle {
+  fill: var(--accent);
+}
+.city-route-line,
+.city-route-highlight {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.45px;
+  opacity: 0.56;
+  pointer-events: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.city-route-highlight {
+  opacity: 1;
+  stroke: var(--ink);
+  stroke-width: 3px;
+}
+.city-route-hit {
+  stroke: transparent;
+  stroke-width: 16px;
+  fill: none;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+.city-map-reference {
+  position: absolute;
+  top: 14px;
+  left: 16px;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  color: var(--muted);
+  font: 12px var(--font-mono);
+  pointer-events: none;
+}
+.city-scale {
+  padding-bottom: 2px;
+  text-align: center;
+  white-space: nowrap;
+  border-bottom: 2px solid currentColor;
+}
+.city-map-empty {
+  position: absolute;
+  top: 45%;
+  padding: 0 24px;
+  text-align: center;
+  width: 100%;
+  pointer-events: none;
+  color: var(--muted);
+  font-size: 13px;
+}
+.footprint-toolbar .footprint-fullscreen:last-child:nth-child(2) {
+  margin-left: auto;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .footprint-camera {
+    transition: transform 260ms ease-out;
+  }
+}
+@media (max-width: 600px) {
+  .city-navigation button,
+  .city-navigation select,
+  .footprint-cities button,
+  .footprint-region-list button,
+  .footprint-map-tools button {
+    min-height: 44px;
+  }
+  .city-navigation select {
+    font-size: 16px;
+  }
+  .footprint-map-tools button {
+    width: 44px;
+  }
+}

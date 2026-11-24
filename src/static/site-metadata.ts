@@ -9,20 +9,16 @@ interface ISiteMetadataResult {
   }[];
 }
 
-const getBasePath = () => {
-  const baseUrl = import.meta.env.BASE_URL;
-  return baseUrl === '/' ? '' : baseUrl;
-};
-
 const data: ISiteMetadataResult = {
-  siteTitle: 'Suuu_Running Page',
+  siteTitle: 'Suuu · 跑步档案',
   siteUrl: 'https://suuu.run',
   logo: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQTtc69JxHNcmN1ETpMUX4dozAgAN6iPjWalQ&usqp=CAU',
-  description: 'Personal site and blog',
+  description:
+    'Suuu 的个人跑步档案，用轨迹记录每一次出发，用时间积累每一公里。',
   navLinks: [
     {
       name: 'Summary',
-      url: `${getBasePath()}/summary`,
+      url: `${import.meta.env.BASE_URL}summary`,
     },
     {
       name: 'Blog',

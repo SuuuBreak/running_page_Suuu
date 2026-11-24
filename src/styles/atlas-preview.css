@@ -1,0 +1,88 @@
+.atlas-route[aria-expanded='true'] {
+  border-color: var(--soft-accent);
+  background: var(--hover);
+}
+.atlas-preview {
+  grid-column: 1 / -1;
+  min-width: 0;
+  margin: 5px 0 10px;
+  border: 1px solid var(--soft-accent);
+  background: var(--panel);
+  scroll-margin-block: 12px;
+}
+.atlas-preview:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.atlas-preview-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 18px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.atlas-preview-heading h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+.atlas-preview-heading p {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 12px;
+  margin: 3px 0 0;
+  color: var(--muted);
+  font: 13px / 1.5 var(--font-mono);
+}
+.atlas-preview-heading p span {
+  color: var(--accent);
+}
+.atlas-preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.atlas-preview-actions > * {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  background: var(--page);
+  color: var(--ink);
+  font-size: 13px;
+}
+.atlas-preview-actions a {
+  border-color: var(--soft-accent);
+  color: var(--accent);
+}
+.atlas-preview-actions > :hover {
+  background: var(--hover);
+}
+.atlas-preview .interactive-scan {
+  min-height: 0;
+  height: auto;
+}
+.atlas-preview .scene-viewport {
+  flex: none;
+  height: clamp(240px, 35vh, 360px);
+}
+@media (max-width: 600px) {
+  .atlas-preview-heading {
+    flex-wrap: wrap;
+    padding: 9px;
+  }
+  .atlas-preview-actions {
+    margin-left: auto;
+  }
+  .atlas-preview .scene-viewport {
+    height: clamp(210px, 32svh, 285px);
+  }
+  .atlas-preview .scene-toolbar button,
+  .atlas-preview .scene-play {
+    min-height: 42px;
+  }
+}

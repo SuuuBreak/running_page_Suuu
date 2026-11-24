@@ -1,63 +1,71 @@
-import MapboxLanguage from '@mapbox/mapbox-gl-language';
-import React, {
-  useRef,
+import {
+  Component,
   useCallback,
-  useState,
   useEffect,
   useMemo,
+  useRef,
+  useState,
+  type PropsWithChildren,
 } from 'react';
-import Map, {
-  Layer,
-  Source,
-  FullscreenControl,
-  NavigationControl,
-  MapRef,
-} from 'react-map-gl';
-import { MapInstance } from 'react-map-gl/src/types/lib';
-import useActivities from '@/hooks/useActivities';
+import Map, { Layer, Marker, Source, type MapRef } from 'react-map-gl';
+import type { FeatureCollection } from 'geojson';
+import type { RPGeometry } from '@/static/run_countries';
 import {
-  IS_CHINESE,
-  ROAD_LABEL_DISPLAY,
-  MAPBOX_TOKEN,
-  PROVINCE_FILL_COLOR,
-  COUNTRY_FILL_COLOR,
-  USE_DASH_LINE,
-  LINE_OPACITY,
-  MAP_HEIGHT,
-  PRIVACY_MODE,
-  LIGHTS_ON,
-  MAP_TILE_VENDOR,
-  MAP_TILE_ACCESS_TOKEN,
-  getRuntimeSingleRunColor,
-} from '@/utils/const';
-import {
-  Coordinate,
-  IViewState,
-  geoJsonForMap,
+  type Coordinate,
+  type IViewState,
   getMapStyle,
   isTouchDevice,
 } from '@/utils/utils';
+import {
+  MAPBOX_TOKEN,
+  MAP_HEIGHT,
+  MAP_TILE_ACCESS_TOKEN,
+  MAP_TILE_VENDOR,
+} from '@/utils/const';
 import { RouteAnimator } from '@/utils/routeAnimation';
-import RunMarker from './RunMarker';
-import RunMapButtons from './RunMapButtons';
-import styles from './style.module.css';
-import { FeatureCollection } from 'geojson';
-import { RPGeometry } from '@/static/run_countries';
-import './mapbox.css';
-import LightsControl from '@/components/RunMap/LightsControl';
 import { useMapTheme, useThemeChangeCounter } from '@/hooks/useTheme';
+import RunMapButtons from './RunMapButtons';
+import './mapbox.css';
+import styles from './style.module.css';
 
 interface IRunMapProps {
   title: string;
   viewState: IViewState;
-  setViewState: (_viewState: IViewState) => void;
-  changeYear: (_year: string) => void;
+  setViewState: (viewState: IViewState) => void;
+  changeYear: (year: string) => void;
   geoData: FeatureCollection<RPGeometry>;
   thisYear: string;
-  animationTrigger?: number; // Optional trigger to force animation replay
+  animationTrigger?: number;
+  height?: number | string;
+  showYearButtons?: boolean;
+  defaultLights?: boolean;
+  onReset?: () => void;
 }
 
-const RunMap = ({
+// A device without a WebGL context can still use the Canvas point-cloud view.
+class MapDeviceBoundary extends Component<
+  PropsWithChildren,
+  { failed: boolean }
+> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  render() {
+    if (this.state.failed)
+      return (
+        <div className={styles.deviceError} role="status">
+          <strong>这个浏览器暂时无法打开地理地图</strong>
+          <p>
+            切换上方的“立体轨迹”仍可旋转、缩放并查看跑步记录。也可以尝试更新浏览器后重试。
+          </p>
+        </div>
+      );
+    return this.props.children;
+  }
+}
+
+function GeographicMap({
   title,
   viewState,
   setViewState,
@@ -65,401 +73,380 @@ const RunMap = ({
   geoData,
   thisYear,
   animationTrigger,
-}: IRunMapProps) => {
-  const { countries, provinces } = useActivities();
+  height = MAP_HEIGHT,
+  showYearButtons = true,
+  defaultLights = true,
+  onReset,
+}: IRunMapProps) {
   const mapRef = useRef<MapRef>(null);
-  const [lights, setLights] = useState(PRIVACY_MODE ? false : LIGHTS_ON);
-  // layers that should remain visible when lights are off
-  const keepWhenLightsOff = ['runs2', 'animated-run'];
-  const [mapGeoData, setMapGeoData] =
-    useState<FeatureCollection<RPGeometry> | null>(null);
-  const [isLoadingMapData, setIsLoadingMapData] = useState(false);
-
-  // Use the map theme hook to get the current map theme
-  const currentMapTheme = useMapTheme();
-  // Listen for theme changes to update single run color
-  const themeChangeCounter = useThemeChangeCounter();
-
-  // Get theme-aware single run color that updates when theme changes
-  const singleRunColor = useMemo(
-    () => getRuntimeSingleRunColor(),
-    [themeChangeCounter]
-  );
-
-  // Generate map style based on current theme
-  const mapStyle = useMemo(
-    () => getMapStyle(MAP_TILE_VENDOR, currentMapTheme, MAP_TILE_ACCESS_TOKEN),
-    [currentMapTheme]
-  );
-
-  // Update map when theme changes
-  useEffect(() => {
-    if (mapRef.current) {
-      const map = mapRef.current.getMap();
-
-      // Save current map state before changing style
-      const currentCenter = map.getCenter();
-      const currentZoom = map.getZoom();
-      const currentBearing = map.getBearing();
-      const currentPitch = map.getPitch();
-
-      // Apply new style
-      map.setStyle(mapStyle);
-
-      // Create a stable handler for style.load to ensure proper cleanup
-      const handleStyleLoad = () => {
-        // Add a small delay to ensure style is fully loaded
-        setTimeout(() => {
-          try {
-            // Restore map view state
-            map.setCenter(currentCenter);
-            map.setZoom(currentZoom);
-            map.setBearing(currentBearing);
-            map.setPitch(currentPitch);
-
-            // Reapply layer visibility settings with current lights state
-            switchLayerVisibility(map, lights);
-          } catch (error) {
-            console.warn('Error applying map style changes:', error);
-          }
-        }, 100);
-      };
-
-      // Use once to automatically remove the listener after it fires
-      map.once('style.load', handleStyleLoad);
-    }
-  }, [mapStyle]); // Keep only mapStyle in dependency to prevent excessive re-renders
-
-  // animation state (single run only)
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const loadTimer = useRef<number | undefined>(undefined);
+  const animatorRef = useRef<RouteAnimator | null>(null);
+  const theme = useMapTheme();
+  const themeCounter = useThemeChangeCounter();
+  const [lights, setLights] = useState(defaultLights);
+  const [offline, setOffline] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const [ready, setReady] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const [playing, setPlaying] = useState(false);
   const [animatedPoints, setAnimatedPoints] = useState<Coordinate[]>([]);
-  const routeAnimatorRef = useRef<RouteAnimator | null>(null);
-  const lastRouteKeyRef = useRef<string | null>(null);
-
-  // Memoize filter arrays to prevent recreating them on every render
-  const filterProvinces = useMemo(() => {
-    const filtered = provinces.slice();
-    filtered.unshift('in', 'name');
-    return filtered;
-  }, [provinces]);
-
-  const filterCountries = useMemo(() => {
-    const filtered = countries.slice();
-    filtered.unshift('in', 'name');
-    return filtered;
-  }, [countries]);
-
-  /**
-   * Toggle visibility of map layers based on lights setting
-   * @param map - The Mapbox map instance
-   * @param lights - Whether lights are on or off
-   */
-  function switchLayerVisibility(map: MapInstance, lights: boolean) {
-    const styleJson = map.getStyle();
-    styleJson.layers.forEach((it: { id: string }) => {
-      if (!keepWhenLightsOff.includes(it.id)) {
-        if (lights) map.setLayoutProperty(it.id, 'visibility', 'visible');
-        else map.setLayoutProperty(it.id, 'visibility', 'none');
-      }
-    });
-  }
-
-  // Apply layer visibility when lights setting changes
-  useEffect(() => {
-    if (mapRef.current) {
-      const map = mapRef.current.getMap();
-      // Add a small delay to ensure map is ready
-      setTimeout(() => {
-        try {
-          switchLayerVisibility(map, lights);
-        } catch (error) {
-          console.warn('Error switching layer visibility:', error);
-        }
-      }, 50);
-    }
-  }, [lights]);
-
-  const mapRefCallback = useCallback(
-    (ref: MapRef) => {
-      if (ref !== null) {
-        const map = ref.getMap();
-        if (map && IS_CHINESE) {
-          map.addControl(new MapboxLanguage({ defaultLanguage: 'zh-Hans' }));
-        }
-        // all style resources have been downloaded
-        // and the first visually complete rendering of the base style has occurred.
-        // it's odd. when use style other than mapbox, the style.load event is not triggered.Add commentMore actions
-        // so I use data event instead of style.load event and make sure we handle it only once.
-        map.on('data', (event) => {
-          if (event.dataType !== 'style' || mapRef.current) {
-            return;
-          }
-          if (!ROAD_LABEL_DISPLAY) {
-            const layers = map.getStyle().layers;
-            const labelLayerNames = layers
-              .filter(
-                (layer: any) =>
-                  (layer.type === 'symbol' || layer.type === 'composite') &&
-                  layer.layout.text_field !== null
-              )
-              .map((layer: any) => layer.id);
-            labelLayerNames.forEach((layerId) => {
-              map.removeLayer(layerId);
-            });
-          }
-          mapRef.current = ref;
-          switchLayerVisibility(map, lights);
-        });
-      }
-      if (mapRef.current) {
-        const map = mapRef.current.getMap();
-        switchLayerVisibility(map, lights);
-      }
-    },
-    [mapRef, lights]
+  const isLight = document.documentElement.dataset.theme === 'light';
+  const accent = isLight ? '#52671a' : '#d1e66c';
+  const baseStyle = useMemo(
+    () => getMapStyle(MAP_TILE_VENDOR, theme, MAP_TILE_ACCESS_TOKEN),
+    [theme]
   );
-
-  const initGeoDataLength = geoData.features.length;
-  const isBigMap = (viewState.zoom ?? 0) <= 3;
-
-  useEffect(() => {
-    if (isBigMap && IS_CHINESE && !mapGeoData && !isLoadingMapData) {
-      setIsLoadingMapData(true);
-      geoJsonForMap()
-        .then((data) => {
-          setMapGeoData(data);
-          setIsLoadingMapData(false);
-        })
-        .catch(() => {
-          setIsLoadingMapData(false);
-        });
-    }
-  }, [isBigMap, IS_CHINESE, mapGeoData, isLoadingMapData]);
-
-  let combinedGeoData = geoData;
-  if (isBigMap && IS_CHINESE && mapGeoData) {
-    // Show boundary and line together, combine geoData(only when not combine yet)
-    if (geoData.features.length === initGeoDataLength) {
-      combinedGeoData = {
-        type: 'FeatureCollection',
-        features: geoData.features.concat(mapGeoData.features),
-      };
-    }
-  }
-
-  // Memoize expensive calculations
-  const { isSingleRun, startLon, startLat, endLon, endLat } = useMemo(() => {
-    const isSingle =
-      geoData.features.length === 1 &&
-      geoData.features[0].geometry.coordinates.length;
-
-    let startLon = 0;
-    let startLat = 0;
-    let endLon = 0;
-    let endLat = 0;
-
-    if (isSingle) {
-      const points = geoData.features[0].geometry.coordinates as Coordinate[];
-      [startLon, startLat] = points[0];
-      [endLon, endLat] = points[points.length - 1];
-    }
-
-    return { isSingleRun: isSingle, startLon, startLat, endLon, endLat };
+  const plainStyle = useMemo(
+    () => ({
+      version: 8 as const,
+      sources: {},
+      layers: [
+        {
+          id: 'archive-background',
+          type: 'background' as const,
+          paint: {
+            'background-color': isLight ? '#e9ecdf' : '#11160e',
+            'background-opacity': 0.87,
+          },
+        },
+      ],
+    }),
+    [isLight, themeCounter]
+  );
+  const mapStyle = !lights || offline ? plainStyle : baseStyle;
+  const points = useMemo(() => {
+    const validFeatures = geoData.features.filter(
+      (feature) =>
+        feature.geometry.type === 'LineString' &&
+        feature.geometry.coordinates.length > 1
+    );
+    const feature =
+      validFeatures.find((feature) => feature.properties?.selected === true) ||
+      validFeatures[0];
+    return feature ? (feature.geometry.coordinates as Coordinate[]) : [];
   }, [geoData]);
-
-  const dash = useMemo(() => {
-    return USE_DASH_LINE && !isSingleRun && !isBigMap ? [2, 2] : [2, 0];
-  }, [isSingleRun, isBigMap]);
-
-  const onMove = useCallback(
-    ({ viewState }: { viewState: IViewState }) => {
-      setViewState(viewState);
-    },
-    [setViewState]
-  );
-
-  const style: React.CSSProperties = useMemo(
-    () => ({
-      width: '100%',
-      height: MAP_HEIGHT,
-      maxWidth: '100%', // Prevent overflow on mobile
-    }),
-    []
-  );
-
-  const fullscreenButton: React.CSSProperties = useMemo(
-    () => ({
-      position: 'absolute',
-      marginTop: '29.2px',
-      right: '0px',
-      opacity: 0.3,
-    }),
-    []
-  );
+  const single =
+    geoData.features.length === 1 ||
+    geoData.features.some((feature) => feature.properties?.selected === true);
 
   useEffect(() => {
-    const handleFullscreenChange = () => {
-      if (mapRef.current) {
-        mapRef.current.getMap().resize();
-      }
+    setPlaying(false);
+    setAnimatedPoints([]);
+    animatorRef.current?.stop();
+    return () => animatorRef.current?.stop();
+  }, [points]);
+
+  useEffect(() => {
+    const stopPlayback = () => {
+      animatorRef.current?.stop();
+      setPlaying(false);
     };
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    const onVisibility = () => {
+      if (document.hidden) stopPlayback();
+    };
+    const preference = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const onPreference = () => {
+      if (preference.matches) stopPlayback();
+    };
+    window.addEventListener('blur', stopPlayback);
+    document.addEventListener('visibilitychange', onVisibility);
+    preference.addEventListener('change', onPreference);
     return () => {
-      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      window.removeEventListener('blur', stopPlayback);
+      document.removeEventListener('visibilitychange', onVisibility);
+      preference.removeEventListener('change', onPreference);
+      animatorRef.current?.stop();
     };
   }, []);
 
-  // start route animation using RouteAnimator
-  const startRouteAnimation = useCallback(() => {
-    if (!isSingleRun) return;
-    const points = geoData.features[0].geometry.coordinates as Coordinate[];
-    if (!points || points.length < 2) return;
+  useEffect(() => {
+    if (!lights || offline) return;
+    setReady(false);
+    loadTimer.current = window.setTimeout(() => {
+      setOffline(true);
+      setLoadError(true);
+    }, 10000);
+    return () => window.clearTimeout(loadTimer.current);
+  }, [attempt, lights, offline, baseStyle]);
 
-    // Stop any existing animation
-    if (routeAnimatorRef.current) {
-      routeAnimatorRef.current.stop();
+  const play = useCallback(() => {
+    animatorRef.current?.stop();
+    if (playing) {
+      setPlaying(false);
+      setAnimatedPoints([]);
+      return;
     }
-
-    // Create new animator
-    routeAnimatorRef.current = new RouteAnimator(
-      points,
-      setAnimatedPoints,
-      () => {
-        routeAnimatorRef.current = null;
-      }
+    if (points.length < 2 || !single) return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      setAnimatedPoints(points);
+      return;
+    }
+    setPlaying(true);
+    animatorRef.current = new RouteAnimator(points, setAnimatedPoints, () =>
+      setPlaying(false)
     );
+    animatorRef.current.start();
+  }, [points, playing, single]);
 
-    // Start animation
-    routeAnimatorRef.current.start();
-  }, [geoData, isSingleRun]);
-
-  // autoplay once when single run changes
   useEffect(() => {
-    if (!isSingleRun) return;
-    const pts = geoData.features[0].geometry.coordinates as Coordinate[];
-    const key = `${pts.length}-${pts[0]?.join(',')}-${pts[pts.length - 1]?.join(',')}`;
-    if (key && key !== lastRouteKeyRef.current) {
-      lastRouteKeyRef.current = key;
-      startRouteAnimation();
-    }
-    // cleanup on unmount
-    return () => {
-      if (routeAnimatorRef.current) {
-        routeAnimatorRef.current.stop();
-      }
-    };
-  }, [geoData, isSingleRun, startRouteAnimation]);
+    if (animationTrigger && single) play();
+  }, [animationTrigger]);
 
-  // Force animation when animationTrigger changes (for table clicks)
-  useEffect(() => {
-    if (animationTrigger && animationTrigger > 0 && isSingleRun) {
-      startRouteAnimation();
+  const retry = () => {
+    setLoadError(false);
+    setOffline(false);
+    setLights(true);
+    setReady(false);
+    setAttempt((value) => value + 1);
+  };
+  const reset = () => {
+    const map = mapRef.current?.getMap();
+    map?.stop();
+    // The parent owns the complete camera. Do not start an imperative animation
+    // whose onMove events could overwrite that controlled reset.
+    if (onReset) {
+      onReset();
+      return;
     }
-  }, [animationTrigger, isSingleRun, startRouteAnimation]);
-
-  const handleMapClick = useCallback(() => {
-    if (!isSingleRun) return;
-    startRouteAnimation();
-  }, [isSingleRun, startRouteAnimation]);
+    map?.resetNorthPitch({
+      duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        ? 0
+        : 200,
+    });
+  };
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) void document.exitFullscreen();
+    else void wrapperRef.current?.requestFullscreen();
+  };
 
   return (
-    <Map
-      {...viewState}
-      onMove={onMove}
-      onClick={handleMapClick}
-      style={style}
-      mapStyle={mapStyle}
-      ref={mapRefCallback}
-      cooperativeGestures={isTouchDevice()}
-      mapboxAccessToken={MAPBOX_TOKEN}
-    >
-      <RunMapButtons changeYear={changeYear} thisYear={thisYear} />
-      <Source id="data" type="geojson" data={combinedGeoData}>
-        <Layer
-          id="province"
-          type="fill"
-          paint={{
-            'fill-color': PROVINCE_FILL_COLOR,
-          }}
-          filter={filterProvinces}
-        />
-        <Layer
-          id="countries"
-          type="fill"
-          paint={{
-            'fill-color': COUNTRY_FILL_COLOR,
-            // in China, fill a bit lighter while already filled provinces
-            'fill-opacity': ['case', ['==', ['get', 'name'], '中国'], 0.1, 0.5],
-          }}
-          filter={filterCountries}
-        />
-        <Layer
-          id="runs2"
-          type="line"
-          paint={{
-            'line-color': ['get', 'color'],
-            'line-width': isBigMap && lights ? 1 : 2,
-            'line-dasharray': dash,
-            'line-opacity':
-              isSingleRun || isBigMap || !lights ? 1 : LINE_OPACITY,
-            'line-blur': 1,
-          }}
-          layout={{
-            'line-join': 'round',
-            'line-cap': 'round',
-          }}
-        />
-      </Source>
-      {isSingleRun && animatedPoints.length > 0 && (
-        <Source
-          id="animated-run"
-          type="geojson"
-          data={{
-            type: 'FeatureCollection',
-            features: [
-              {
-                type: 'Feature',
-                properties: { color: singleRunColor },
-                geometry: {
-                  type: 'LineString',
-                  coordinates: animatedPoints,
-                },
-              },
-            ],
-          }}
-        >
+    <div ref={wrapperRef} className={styles.geoSurface} style={{ height }}>
+      <Map
+        key={attempt}
+        {...viewState}
+        ref={mapRef}
+        style={{ width: '100%', height: '100%' }}
+        mapStyle={mapStyle}
+        mapboxAccessToken={MAPBOX_TOKEN}
+        onMove={(event) => setViewState(event.viewState)}
+        onLoad={() => {
+          setReady(true);
+          window.clearTimeout(loadTimer.current);
+        }}
+        onStyleData={() => {
+          if (mapRef.current?.getMap().isStyleLoaded()) {
+            setReady(true);
+            window.clearTimeout(loadTimer.current);
+          }
+        }}
+        onError={() => {
+          if (!offline && lights) {
+            window.clearTimeout(loadTimer.current);
+            setOffline(true);
+            setLoadError(true);
+          }
+        }}
+        cooperativeGestures={isTouchDevice()}
+        attributionControl={false}
+      >
+        <Source id="archive-route" type="geojson" data={geoData}>
           <Layer
-            id="animated-run"
+            id="archive-route-glow"
             type="line"
             paint={{
-              'line-color': ['get', 'color'],
-              'line-width': 3,
-              'line-opacity': 1,
+              'line-color': accent,
+              'line-width':
+                geoData.features.length === 1
+                  ? 7
+                  : ['case', ['boolean', ['get', 'selected'], false], 7, 4],
+              'line-blur': 4,
+              'line-opacity':
+                geoData.features.length === 1
+                  ? 0.18
+                  : [
+                      'case',
+                      ['boolean', ['get', 'selected'], false],
+                      0.18,
+                      0.035,
+                    ],
             }}
-            layout={{
-              'line-join': 'round',
-              'line-cap': 'round',
+            layout={{ 'line-join': 'round', 'line-cap': 'round' }}
+          />
+          <Layer
+            id="archive-route-line"
+            type="line"
+            paint={{
+              'line-color': accent,
+              'line-width':
+                geoData.features.length === 1
+                  ? 2.5
+                  : ['case', ['boolean', ['get', 'selected'], false], 2.8, 1.2],
+              'line-opacity':
+                geoData.features.length === 1
+                  ? 1
+                  : ['case', ['boolean', ['get', 'selected'], false], 1, 0.28],
             }}
+            layout={{ 'line-join': 'round', 'line-cap': 'round' }}
           />
         </Source>
+        {animatedPoints.length > 1 && (
+          <Source
+            id="archive-playback"
+            type="geojson"
+            data={{
+              type: 'FeatureCollection',
+              features: [
+                {
+                  type: 'Feature',
+                  properties: {},
+                  geometry: { type: 'LineString', coordinates: animatedPoints },
+                },
+              ],
+            }}
+          >
+            <Layer
+              id="archive-playback-line"
+              type="line"
+              paint={{
+                'line-color': isLight ? '#1c3b22' : '#f7ffe4',
+                'line-width': 4,
+              }}
+              layout={{ 'line-join': 'round', 'line-cap': 'round' }}
+            />
+          </Source>
+        )}
+        {single && points.length > 1 && (
+          <>
+            <Marker
+              longitude={points[0][0]}
+              latitude={points[0][1]}
+              anchor="center"
+            >
+              <span className={styles.startMarker} aria-label="轨迹起点">
+                起
+              </span>
+            </Marker>
+            <Marker
+              longitude={points[points.length - 1][0]}
+              latitude={points[points.length - 1][1]}
+              anchor="center"
+            >
+              <span className={styles.endMarker} aria-label="轨迹终点">
+                终
+              </span>
+            </Marker>
+          </>
+        )}
+        {playing && animatedPoints.length > 0 && (
+          <Marker
+            longitude={animatedPoints[animatedPoints.length - 1][0]}
+            latitude={animatedPoints[animatedPoints.length - 1][1]}
+            anchor="center"
+          >
+            <span className={styles.playbackMarker} />
+          </Marker>
+        )}
+      </Map>
+      {showYearButtons && (
+        <RunMapButtons thisYear={thisYear} changeYear={changeYear} />
       )}
-      {isSingleRun && (
-        <RunMarker
-          startLat={startLat}
-          startLon={startLon}
-          endLat={endLat}
-          endLon={endLon}
-        />
+      <div className={styles.mapStatus} role="status">
+        {!ready && !offline && lights
+          ? '地理底图加载中…'
+          : !lights || offline
+            ? '纯轨迹视图'
+            : '地理底图'}
+        <span>{title}</span>
+      </div>
+      <div className={styles.mapTools} aria-label="地理地图工具">
+        <button
+          type="button"
+          aria-label="放大地图"
+          title="放大地图"
+          onClick={() => mapRef.current?.getMap().zoomIn({ duration: 200 })}
+        >
+          ＋
+        </button>
+        <button
+          type="button"
+          aria-label="缩小地图"
+          title="缩小地图"
+          onClick={() => mapRef.current?.getMap().zoomOut({ duration: 200 })}
+        >
+          −
+        </button>
+        <button
+          type="button"
+          aria-label="复位地理地图"
+          title="复位地理地图"
+          onClick={reset}
+        >
+          ⌖
+        </button>
+        <button
+          type="button"
+          aria-label="切换地图全屏"
+          title="切换地图全屏"
+          onClick={toggleFullscreen}
+        >
+          ⛶
+        </button>
+      </div>
+      <div className={styles.mapBottomTools}>
+        <button
+          type="button"
+          aria-pressed={lights && !offline}
+          onClick={() => {
+            if (offline) {
+              retry();
+            } else setLights((value) => !value);
+          }}
+        >
+          {lights && !offline ? '隐藏底图' : '显示地理底图'}
+        </button>
+        {single && (
+          <button
+            type="button"
+            aria-label={playing ? '停止地图轨迹回放' : '回放地图轨迹'}
+            onClick={play}
+          >
+            {playing ? '停止回放' : '▶ 轨迹回放'}
+          </button>
+        )}
+      </div>
+      {loadError && (
+        <div className={styles.baseMapNotice} role="status">
+          <span>在线底图暂未加载，GPS 轨迹仍可拖动、缩放和回放。</span>
+          <button type="button" onClick={retry}>
+            重试底图
+          </button>
+        </div>
       )}
-      <span className={styles.runTitle}>{title}</span>
-      <FullscreenControl style={fullscreenButton} />
-      {!PRIVACY_MODE && <LightsControl setLights={setLights} lights={lights} />}
-      <NavigationControl
-        showCompass={false}
-        position={'bottom-right'}
-        style={{ opacity: 0.3 }}
-      />
-    </Map>
+      <div className={styles.mapAttribution}>
+        <a
+          href="https://www.mapbox.com/about/maps/"
+          target="_blank"
+          rel="noreferrer"
+        >
+          © Mapbox
+        </a>
+        <a
+          href="https://www.openstreetmap.org/copyright"
+          target="_blank"
+          rel="noreferrer"
+        >
+          © OpenStreetMap
+        </a>
+      </div>
+    </div>
   );
-};
+}
 
-export default RunMap;
+export default function RunMap(props: IRunMapProps) {
+  return (
+    <MapDeviceBoundary>
+      <GeographicMap {...props} />
+    </MapDeviceBoundary>
+  );
+}

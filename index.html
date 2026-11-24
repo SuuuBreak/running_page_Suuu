@@ -1,25 +1,37 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
     <script>
       (function () {
+        try {
+          const theme = localStorage.getItem('theme');
+          if (theme === 'light' || theme === 'dark')
+            document.documentElement.dataset.theme = theme;
+        } catch {}
         const basePath = '%BASE_URL%';
         const redirect = sessionStorage.getItem('redirect');
         if (redirect) {
           sessionStorage.removeItem('redirect');
           if (
-            redirect !== basePath + '/' &&
-            redirect !== basePath + '/index.html'
+            redirect !== basePath &&
+            redirect !== basePath + 'index.html'
           ) {
             window.history.pushState(null, '', redirect);
           }
         }
       })();
     </script>
-    <link rel="icon" type="image/png" href="%BASE_URL%/images/favicon.png" />
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="%BASE_URL%images/suuu-mark.svg"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <meta name="theme-color" content="#0b0d0b" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Running Page</title>
+    <title>Suuu · 跑步档案</title>
   </head>
   <body>
     <div id="root"></div>

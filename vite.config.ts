@@ -4,6 +4,7 @@ import react from '@vitejs/plugin-react';
 import viteTsconfigPaths from 'vite-tsconfig-paths';
 import svgr from 'vite-plugin-svgr';
 import tailwindcss from '@tailwindcss/vite';
+import routeElevationPlugin from './scripts/route-elevation.mjs';
 
 // The following are known larger packages or packages that can be loaded asynchronously.
 const individuallyPackages = [
@@ -12,6 +13,7 @@ const individuallyPackages = [
   'grid.svg',
   'mol.svg',
 ];
+const basePath = process.env.PATH_PREFIX || '/';
 
 const colorClassMapping: { [key: string]: string } = {
   // Background
@@ -27,6 +29,27 @@ const colorClassMapping: { [key: string]: string } = {
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [
+    routeElevationPlugin(),
+    {
+      name: 'archive-pages-entries',
+      enforce: 'post',
+      apply: 'build',
+      generateBundle: {
+        order: 'post',
+        handler(_options, bundle) {
+          const entry = bundle['index.html'];
+          if (entry?.type !== 'asset') return;
+          // GitHub Pages serves directory indexes without an SPA rewrite.
+          for (const route of ['map', 'summary', 'atlas']) {
+            this.emitFile({
+              type: 'asset',
+              fileName: `${route}/index.html`,
+              source: entry.source,
+            });
+          }
+        },
+      },
+    },
     react(),
     tailwindcss(),
     viteTsconfigPaths(),
@@ -85,7 +108,7 @@ export default defineConfig({
       },
     }),
   ],
-  base: process.env.PATH_PREFIX || '/',
+  base: basePath.endsWith('/') ? basePath : `${basePath}/`,
   define: {
     'import.meta.env.VERCEL': JSON.stringify(process.env.VERCEL),
   },
@@ -96,6 +119,16 @@ export default defineConfig({
       output: {
         manualChunks: (id: string) => {
           if (id.includes('node_modules')) {
+            if (id.includes('@surbowl/world-geo-json-zh'))
+              return 'world-geography';
+            if (id.includes('mapbox-gl') || id.includes('react-map-gl'))
+              return 'map-engine';
+            if (
+              id.includes('recharts') ||
+              id.includes('/d3-') ||
+              id.includes('/victory-')
+            )
+              return 'chart-engine';
             return 'vendors';
             // If there will be more and more external packages referenced in the future,
             // the following approach can be considered.

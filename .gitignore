@@ -8,6 +8,7 @@ yarn-error.log
 # Build directory
 /build
 /dist
+/public/route-elevation/
 .DS_Store
 .sass-cache/
 _posts/

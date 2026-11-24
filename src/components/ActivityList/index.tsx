@@ -629,6 +629,7 @@ const ActivityList: React.FC = () => {
           {HOME_PAGE_TITLE}
         </button>
         <select
+          aria-label="统计运动类型"
           onChange={(e) => setSportType(e.target.value)}
           value={sportType}
         >
@@ -638,11 +639,18 @@ const ActivityList: React.FC = () => {
               value={type}
               disabled={interval === 'life' && type !== 'all'}
             >
-              {type}
+              {type === 'all'
+                ? '全部运动'
+                : type === 'Run'
+                  ? '户外跑步'
+                  : type === 'VirtualRun'
+                    ? '室内跑步'
+                    : type}
             </option>
           ))}
         </select>
         <select
+          aria-label="统计时间范围"
           onChange={(e) => toggleInterval(e.target.value as IntervalType)}
           value={interval}
         >

@@ -15,16 +15,17 @@ const RunMapButtons = ({
   return (
     <ul className={styles.buttons}>
       {yearsButtons.map((year) => (
-        <li
-          key={`${year}button`}
-          className={
-            styles.button + ` ${year === thisYear ? styles.selected : ''}`
-          }
-          onClick={() => {
-            changeYear(year);
-          }}
-        >
-          {year}
+        <li key={`${year}button`}>
+          <button
+            type="button"
+            className={
+              styles.button + ` ${year === thisYear ? styles.selected : ''}`
+            }
+            aria-pressed={year === thisYear}
+            onClick={() => changeYear(year)}
+          >
+            {year === 'Total' ? '全部年份' : year}
+          </button>
         </li>
       ))}
     </ul>

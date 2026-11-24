@@ -1,0 +1,90 @@
+.elevation-chart > .elevation-plot {
+  display: block;
+  width: 100%;
+  height: 148px;
+  min-height: 0;
+}
+
+.elevation-chart .elevation-plot text {
+  font-size: 12px;
+}
+
+.elevation-plot.is-interactive {
+  cursor: crosshair;
+  touch-action: pan-y;
+}
+
+.elevation-cursor-values {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0 18px;
+  min-height: 42px;
+  padding: 6px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.elevation-cursor-values strong {
+  color: var(--ink);
+  font: 600 17px/1.3 var(--font-mono);
+}
+
+.elevation-cursor line {
+  stroke: var(--muted);
+  stroke-dasharray: 3 4;
+}
+
+.elevation-cursor circle {
+  fill: var(--accent);
+  stroke: var(--panel);
+  stroke-width: 2;
+}
+
+.elevation-scrubber {
+  display: flex;
+  align-items: center;
+  gap: 8px 14px;
+  min-width: 0;
+  margin: 0 0 12px;
+}
+
+.elevation-scrubber input {
+  flex: 1;
+  width: 100%;
+  min-width: 52px;
+  height: 42px;
+  cursor: pointer;
+}
+
+.elevation-scrubber button {
+  min-height: 38px;
+  padding: 4px 9px;
+  border: 1px solid var(--line);
+  color: var(--ink);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.elevation-scrubber button:disabled {
+  opacity: 0.55;
+}
+
+.elevation-scrubber .elevation-jump {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+@media (max-width: 760px) {
+  .elevation-chart .panel-heading label {
+    min-height: 44px;
+  }
+
+  .elevation-scrubber button {
+    min-height: 44px;
+  }
+
+  .elevation-scrubber input {
+    height: 44px;
+  }
+}

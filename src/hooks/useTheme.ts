@@ -97,11 +97,12 @@ export const useMapTheme = () => {
     window.addEventListener(THEME_CHANGE_EVENT, handleThemeChange);
 
     // Listen for localStorage changes (for multi-tab support)
-    window.addEventListener('storage', (e) => {
+    const handleStorageChange = (e: StorageEvent) => {
       if (e.key === 'theme') {
         handleThemeChange();
       }
-    });
+    };
+    window.addEventListener('storage', handleStorageChange);
 
     // Initial check
     ensureThemeConsistency();
@@ -110,7 +111,7 @@ export const useMapTheme = () => {
     return () => {
       observer.disconnect();
       window.removeEventListener(THEME_CHANGE_EVENT, handleThemeChange);
-      window.removeEventListener('storage', handleThemeChange);
+      window.removeEventListener('storage', handleStorageChange);
     };
   }, [ensureThemeConsistency]);
 
@@ -132,6 +133,8 @@ export const useTheme = () => {
    * Set theme and dispatch event to notify other components
    */
   const setTheme = useCallback((newTheme: Theme) => {
+    document.documentElement.setAttribute('data-theme', newTheme);
+    localStorage.setItem('theme', newTheme);
     setThemeState(newTheme);
 
     // Dispatch custom event for theme change
@@ -141,12 +144,36 @@ export const useTheme = () => {
     window.dispatchEvent(event);
   }, []);
 
+  // Share changes between header, page metadata and the map.
+  useEffect(() => {
+    const onTheme = (event: Event) => {
+      const next = (event as CustomEvent<{ theme: Theme }>).detail?.theme;
+      if (next === 'light' || next === 'dark') setThemeState(next);
+    };
+    const onStorage = (event: StorageEvent) => {
+      if (
+        event.key === 'theme' &&
+        (event.newValue === 'light' || event.newValue === 'dark')
+      )
+        setThemeState(event.newValue);
+    };
+    window.addEventListener(THEME_CHANGE_EVENT, onTheme);
+    window.addEventListener('storage', onStorage);
+    return () => {
+      window.removeEventListener(THEME_CHANGE_EVENT, onTheme);
+      window.removeEventListener('storage', onStorage);
+    };
+  }, []);
+
   // Apply theme changes to DOM and localStorage
   useEffect(() => {
     const root = window.document.documentElement;
 
     // Set attribute and save to localStorage for both themes
     root.setAttribute('data-theme', theme);
+    document
+      .querySelector('meta[name="theme-color"]')
+      ?.setAttribute('content', theme === 'dark' ? '#0b0d0b' : '#f0f1e9');
     localStorage.setItem('theme', theme);
   }, [theme]);
 
@@ -189,16 +216,17 @@ export const useThemeChangeCounter = () => {
     window.addEventListener(THEME_CHANGE_EVENT, handleThemeChange);
 
     // Listen for localStorage changes (for multi-tab support)
-    window.addEventListener('storage', (e) => {
+    const handleStorageChange = (e: StorageEvent) => {
       if (e.key === 'theme') {
         handleThemeChange();
       }
-    });
+    };
+    window.addEventListener('storage', handleStorageChange);
 
     return () => {
       observer.disconnect();
       window.removeEventListener(THEME_CHANGE_EVENT, handleThemeChange);
-      window.removeEventListener('storage', handleThemeChange);
+      window.removeEventListener('storage', handleStorageChange);
     };
   }, []);
 
