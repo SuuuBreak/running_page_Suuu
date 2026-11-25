@@ -82,7 +82,7 @@
 }
 @media (prefers-reduced-motion: no-preference) {
   .footprint-camera {
-    transition: transform 260ms ease-out;
+    transition: transform var(--motion-camera) var(--motion-ease);
   }
 }
 @media (max-width: 600px) {

@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useMemo } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import Layout from '@/components/Layout';
 import RunScan, { RouteMini } from '@/components/RunScan';
 import {
+  ActivitySearch,
   ArchivePageHead,
   ArchiveMetrics,
   ArchiveFooter,
@@ -85,44 +86,36 @@ const Journal = () => {
       }),
     [scopeRuns]
   );
+  const monthRuns = useMemo(
+    () =>
+      (month
+        ? scopeRuns.filter(
+            (r) => Number(r.start_date_local.slice(5, 7)) === month
+          )
+        : [...scopeRuns]
+      ).sort((a, b) => b.start_date_local.localeCompare(a.start_date_local)),
+    [scopeRuns, month]
+  );
   const filtered = useMemo(
     () =>
-      scopeRuns
+      monthRuns
         .filter(
           (r) =>
-            (!month || Number(r.start_date_local.slice(5, 7)) === month) &&
-            (!search ||
-              `${runName(r)} ${r.name} ${r.start_date_local} ${locationForRun(r).city}`
-                .toLowerCase()
-                .includes(search.toLowerCase()))
+            !search ||
+            `${runName(r)} ${r.name} ${r.start_date_local} ${locationForRun(r).city}`
+              .toLowerCase()
+              .includes(search.trim().toLowerCase())
         )
         .sort((a, b) =>
           sort === 'distance'
             ? b.distance - a.distance
             : b.start_date_local.localeCompare(a.start_date_local)
         ),
-    [scopeRuns, month, search, sort]
+    [monthRuns, search, sort]
   );
   const selected =
-    filtered.find((r) => r.run_id === Number(params.get('run'))) || filtered[0];
-  const homeScene = useRef<HTMLDivElement>(null);
-  const lastSelection = useRef(selected?.run_id);
-  useEffect(() => {
-    const changed = lastSelection.current !== selected?.run_id;
-    lastSelection.current = selected?.run_id;
-    if (
-      !changed ||
-      !selected?.summary_polyline ||
-      window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    )
-      return;
-    const canvas = homeScene.current?.querySelector('canvas');
-    const sweep = canvas?.animate(
-      [{ clipPath: 'inset(0 100% 0 0)' }, { clipPath: 'inset(0 0% 0 0)' }],
-      { duration: 440, easing: 'ease-out' }
-    );
-    return () => sweep?.cancel();
-  }, [selected]);
+    monthRuns.find((r) => r.run_id === Number(params.get('run'))) ||
+    monthRuns[0];
   const maxPage = Math.max(1, Math.ceil(filtered.length / 7));
   const selectedPage = selected
     ? Math.floor(filtered.indexOf(selected) / 7) + 1
@@ -133,17 +126,17 @@ const Journal = () => {
   );
   const shown = filtered.slice((page - 1) * 7, page * 7);
   const stats = useMemo(() => {
-    const distance = filtered.reduce((sum, r) => sum + r.distance, 0);
-    const seconds = filtered.reduce(
+    const distance = monthRuns.reduce((sum, r) => sum + r.distance, 0);
+    const seconds = monthRuns.reduce(
       (sum, r) => sum + convertMovingTime2Sec(r.moving_time),
       0
     );
     return {
       distance,
       seconds,
-      days: new Set(filtered.map((r) => r.start_date_local.slice(0, 10))).size,
+      days: new Set(monthRuns.map((r) => r.start_date_local.slice(0, 10))).size,
     };
-  }, [filtered]);
+  }, [monthRuns]);
   const latest = useMemo(
     () =>
       [...activities].sort((a, b) =>
@@ -183,7 +176,7 @@ const Journal = () => {
       value ? next.set(key, value) : next.delete(key)
     );
     if (!('page' in values)) next.delete('page');
-    setParams(next, { replace });
+    setParams(next, { replace, preventScrollReset: true });
   };
 
   const selectedIndex = selected
@@ -246,7 +239,7 @@ const Journal = () => {
             unit: 'km',
             note: `${year === 'all' ? '所有年份' : year}${month ? ` · ${month}月` : ''}`,
           },
-          { label: '出发次数', value: number(filtered.length), unit: '次' },
+          { label: '出发次数', value: number(monthRuns.length), unit: '次' },
           {
             label: '平均配速',
             value: pace(stats.distance, stats.seconds),
@@ -274,7 +267,7 @@ const Journal = () => {
                 : '选择活动后查看'}
             </span>
           </div>
-          <div className="home-scene-body" ref={homeScene}>
+          <div className="home-scene-body">
             <RunScan activity={selected} />
           </div>
         </div>
@@ -506,40 +499,12 @@ const Journal = () => {
               </label>
             </div>
             <div className="record-filters">
-              <label className="search-field">
-                <svg
-                  width="15"
-                  height="15"
-                  viewBox="0 0 24 24"
-                  aria-hidden="true"
-                >
-                  <circle
-                    cx="10.5"
-                    cy="10.5"
-                    r="6.5"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                  />
-                  <path
-                    d="m16 16 4 4"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                  />
-                </svg>
-                <span className="sr-only">搜索跑步记录</span>
-                <input
-                  type="search"
-                  name="q"
-                  autoComplete="off"
-                  aria-label="搜索跑步记录"
-                  placeholder="搜索日期、城市或活动…"
-                  value={search}
-                  onChange={(e) =>
-                    update({ q: e.target.value, run: null }, true)
-                  }
-                />
-              </label>
+              <ActivitySearch
+                className="search-field"
+                label="搜索跑步记录"
+                value={search}
+                onChange={(value) => update({ q: value }, true)}
+              />
               {month > 0 && (
                 <button
                   className="filter-chip"

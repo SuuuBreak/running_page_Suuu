@@ -65,6 +65,16 @@ class MapDeviceBoundary extends Component<
   }
 }
 
+function cameraDuration() {
+  return matchMedia('(prefers-reduced-motion: reduce)').matches
+    ? 0
+    : parseFloat(
+        getComputedStyle(document.documentElement).getPropertyValue(
+          '--motion-camera'
+        )
+      );
+}
+
 function GeographicMap({
   title,
   viewState,
@@ -210,9 +220,7 @@ function GeographicMap({
       return;
     }
     map?.resetNorthPitch({
-      duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches
-        ? 0
-        : 200,
+      duration: cameraDuration(),
     });
   };
   const toggleFullscreen = () => {
@@ -364,7 +372,9 @@ function GeographicMap({
           type="button"
           aria-label="放大地图"
           title="放大地图"
-          onClick={() => mapRef.current?.getMap().zoomIn({ duration: 200 })}
+          onClick={() =>
+            mapRef.current?.getMap().zoomIn({ duration: cameraDuration() })
+          }
         >
           ＋
         </button>
@@ -372,7 +382,9 @@ function GeographicMap({
           type="button"
           aria-label="缩小地图"
           title="缩小地图"
-          onClick={() => mapRef.current?.getMap().zoomOut({ duration: 200 })}
+          onClick={() =>
+            mapRef.current?.getMap().zoomOut({ duration: cameraDuration() })
+          }
         >
           −
         </button>

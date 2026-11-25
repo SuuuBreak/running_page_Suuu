@@ -1,0 +1,175 @@
+:root {
+  --motion-fast: 110ms;
+  --motion-panel: 180ms;
+  --motion-camera: 230ms;
+  --motion-ease: cubic-bezier(0.2, 0.75, 0.25, 1);
+}
+
+.site-header {
+  position: relative;
+}
+
+.header-loading {
+  position: absolute;
+  inset-inline-end: 20px;
+  bottom: -32px;
+  z-index: 3;
+  padding: 4px 8px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  pointer-events: none;
+  font-size: 12px;
+}
+
+.header-loading:empty {
+  display: none;
+}
+
+.theme-glyph,
+.motion-glyph,
+.motion-value {
+  animation: appear var(--motion-fast) var(--motion-ease) both;
+}
+
+.journal-hero,
+.workspace-intro,
+.atlas-preview,
+.motion-feedback,
+.header-loading {
+  animation: enter var(--motion-panel) var(--motion-ease) both;
+}
+
+.atlas-preview[data-closing='true'] {
+  animation: leave var(--motion-fast) var(--motion-ease) both;
+  pointer-events: none;
+}
+
+.route-loading,
+.map-scene-loading,
+.elevation-empty[data-loading='true'] {
+  animation: reveal var(--motion-fast) var(--motion-ease) 160ms both;
+}
+
+:where(button, select, .header-nav a, .map-activity-item) {
+  transition:
+    color var(--motion-fast) var(--motion-ease),
+    background-color var(--motion-fast) var(--motion-ease),
+    border-color var(--motion-fast) var(--motion-ease),
+    opacity var(--motion-fast) var(--motion-ease);
+}
+
+.atlas-route:is(:hover, :focus-visible, [aria-expanded='true']) {
+  transition:
+    background-color var(--motion-fast) var(--motion-ease),
+    border-color var(--motion-fast) var(--motion-ease);
+}
+
+.header-nav a::after {
+  transition:
+    opacity var(--motion-fast) var(--motion-ease),
+    transform var(--motion-panel) var(--motion-ease);
+}
+
+:where(
+    .scene-play,
+    .scene-follow,
+    .theme-toggle,
+    .map-copy-link,
+    .workspace-button
+  ):active:not(:disabled) {
+  translate: 0 1px;
+}
+
+[data-has-route='false'] .run-scan-canvas {
+  pointer-events: none;
+}
+
+.map-manual-link {
+  margin-top: 10px;
+}
+
+.archive-search input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.search-field.archive-search,
+.map-search.archive-search {
+  position: relative;
+  padding-inline-end: 42px;
+}
+
+.archive-search-clear {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 0;
+  min-inline-size: 42px;
+  border: 0;
+  color: var(--muted);
+  background: transparent;
+  font-size: 20px;
+}
+
+.archive-search-clear:hover {
+  color: var(--ink);
+}
+
+.map-copy-link {
+  min-inline-size: 142px;
+}
+
+.elevation-empty .workspace-button {
+  margin-top: 8px;
+}
+
+@keyframes reveal {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes appear {
+  from {
+    opacity: 0.45;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes leave {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

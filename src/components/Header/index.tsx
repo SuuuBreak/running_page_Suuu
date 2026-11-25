@@ -1,7 +1,7 @@
 import { NavLink, Link, useSearchParams } from 'react-router-dom';
 import { useTheme } from '@/hooks/useTheme';
 
-const Header = () => {
+const Header = ({ pending = false }: { pending?: boolean }) => {
   const { theme, setTheme } = useTheme();
   const [params] = useSearchParams();
   const shared = new URLSearchParams();
@@ -56,7 +56,6 @@ const Header = () => {
         <NavLink to={destination('/atlas')}>足迹图册</NavLink>
       </nav>
       <div className="header-tools">
-        <span className="header-note">保持奔跑</span>
         <button
           className="theme-toggle"
           type="button"
@@ -65,6 +64,8 @@ const Header = () => {
           onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
         >
           <svg
+            className="theme-glyph"
+            key={theme}
             width="18"
             height="18"
             viewBox="0 0 24 24"
@@ -84,6 +85,9 @@ const Header = () => {
           </svg>
         </button>
       </div>
+      <span className="header-loading" role="status">
+        {pending ? '正在打开页面…' : ''}
+      </span>
     </header>
   );
 };

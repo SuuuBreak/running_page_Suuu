@@ -144,8 +144,7 @@ html {
 .header-nav a {
   font-size: 13px;
 }
-.site-brand small,
-.header-note {
+.site-brand small {
   font-size: 12px;
 }
 .site-brand small {

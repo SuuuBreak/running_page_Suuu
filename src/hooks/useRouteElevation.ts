@@ -16,6 +16,7 @@ const base = `${import.meta.env.BASE_URL}route-elevation/`;
 
 export default function useRouteElevation(activity?: Activity) {
   const id = activity?.run_id;
+  const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<{
     id?: number;
     profile?: ElevationProfile;
@@ -65,8 +66,12 @@ export default function useRouteElevation(activity?: Activity) {
       active = false;
       controller.abort();
     };
-  }, [id]);
-  return state.id === id
-    ? state
-    : { status: 'loading' as const, profile: undefined };
+  }, [id, attempt]);
+  const current =
+    state.id === id
+      ? state
+      : { status: 'loading' as const, profile: undefined };
+  return { ...current, retry: () => setAttempt((previous) => previous + 1) };
 }
+
+export type RouteElevationState = ReturnType<typeof useRouteElevation>;

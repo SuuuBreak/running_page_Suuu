@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Activity } from '@/utils/utils';
-import useRouteElevation, {
-  type ElevationProfile,
+import type {
+  ElevationProfile,
+  RouteElevationState,
 } from '@/hooks/useRouteElevation';
 import { formatNumber } from '@/utils/archive';
 import { interpolate, profilePosition } from '@/utils/profilePosition';
@@ -25,6 +26,7 @@ type CursorProps = {
 
 export default function ElevationChart({
   activity,
+  elevation,
   cursor,
   pinnedCursor,
   replayPosition,
@@ -35,24 +37,36 @@ export default function ElevationChart({
   onSmoothedChange,
 }: CursorProps & {
   activity: Activity;
+  elevation: RouteElevationState;
   smoothed?: boolean;
   onSmoothedChange?: (value: boolean) => void;
 }) {
-  const { profile, status } = useRouteElevation(activity);
+  const { profile, status, retry } = elevation;
   const [localSmoothed, setLocalSmoothed] = useState(true);
   if (!profile)
     return (
       <div
         className="elevation-empty archive-panel"
-        role="status"
+        data-loading={status === 'loading'}
         id="run-elevation-profile"
         tabIndex={-1}
       >
-        {status === 'loading'
-          ? '正在读取海拔剖面…'
-          : status === 'error'
-            ? '海拔文件暂时无法读取，三维视图显示平面路线。刷新页面后可重试。'
-            : '这条活动缺少可匹配的逐点海拔，三维视图显示平面路线。'}
+        <p role="status">
+          {status === 'loading'
+            ? '正在读取海拔剖面…'
+            : status === 'error'
+              ? '海拔暂时无法读取。平面路线仍可浏览。'
+              : '这条活动只有平面 GPS 路线。'}
+        </p>
+        {status === 'error' && (
+          <button
+            className="workspace-button motion-feedback"
+            type="button"
+            onClick={retry}
+          >
+            重试海拔
+          </button>
+        )}
       </div>
     );
 

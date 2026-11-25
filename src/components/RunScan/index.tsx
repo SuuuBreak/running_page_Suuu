@@ -3,7 +3,9 @@ import type { KeyboardEvent, PointerEvent as ReactPointerEvent } from 'react';
 import * as polyline from '@mapbox/polyline';
 import type { Activity } from '@/utils/utils';
 import { useThemeChangeCounter } from '@/hooks/useTheme';
-import useRouteElevation from '@/hooks/useRouteElevation';
+import useRouteElevation, {
+  type RouteElevationState,
+} from '@/hooks/useRouteElevation';
 import {
   gpsDistances,
   pickRoute,
@@ -90,6 +92,7 @@ function segmentDistance(x: number, y: number, a: Point, b: Point) {
 // Surrounding dots stay on a flat reference plane: a route cannot define terrain.
 export default function RunScan({
   activity,
+  elevation,
   compact = false,
   cursor: controlledCursor,
   smoothed: controlledSmoothed,
@@ -99,6 +102,7 @@ export default function RunScan({
   chartSeek,
 }: {
   activity?: Activity;
+  elevation?: RouteElevationState;
   compact?: boolean;
   cursor?: number | null;
   smoothed?: boolean;
@@ -124,7 +128,8 @@ export default function RunScan({
   const tap = useRef<{ id: number; x: number; y: number } | null>(null);
   const [dragging, setDragging] = useState(false);
   const [view, setView] = useState<'perspective' | 'top'>('perspective');
-  const { profile, status } = useRouteElevation(activity);
+  const localElevation = useRouteElevation(elevation ? undefined : activity);
+  const { profile, status } = elevation ?? localElevation;
   const [heightScale, setHeightScale] = useState(1);
   const [localSmoothed, setLocalSmoothed] = useState(true);
   const smoothed = controlledSmoothed ?? localSmoothed;
@@ -614,7 +619,6 @@ export default function RunScan({
   const toggleFollow = () => {
     if (following) {
       setFollowing(false);
-      setPlaying(false);
       return;
     }
     setFollowing(true);
@@ -733,6 +737,7 @@ export default function RunScan({
     setDragging(pointers.current.size > 0);
   };
   const displayPoint = playing || following ? runner : cursorPoint;
+  const hasRoute = geometry.route.length > 1;
   const playbackDistance = ((totalMeters * progress) / 1000).toFixed(2);
   const selectedStop =
     cursor === null
@@ -798,76 +803,90 @@ export default function RunScan({
     <div
       className={`interactive-scan ${compact ? 'scan-compact' : ''}`}
       data-following={following}
+      data-has-route={hasRoute}
     >
-      <div className="scene-playback" role="group" aria-label="轨迹回放与定位">
-        <button
-          type="button"
-          className="scene-play"
-          disabled={!geometry.route.length}
-          aria-label={playing ? '暂停轨迹回放' : '播放轨迹回放'}
-          aria-pressed={playing}
-          onClick={togglePlay}
+      {hasRoute && (
+        <div
+          className="scene-playback"
+          role="group"
+          aria-label="轨迹回放与定位"
         >
-          <span aria-hidden="true">{playing ? 'Ⅱ' : '▶'}</span>
-          {playing ? '暂停' : '回放'}
-        </button>
-        <button
-          className="scene-follow"
-          type="button"
-          aria-label="跟随跑者"
-          aria-pressed={following}
-          disabled={!totalMeters}
-          onClick={toggleFollow}
-        >
-          {following ? '退出跟随' : '跟随跑者'}
-        </button>
-        {totalMeters > 0 && (
-          <select
-            className="scene-km-select"
-            aria-label="选择路线里程"
-            value={selectedStop ?? ''}
-            onChange={(event) =>
-              selectPosition(Number(event.target.value) / totalMeters)
-            }
-          >
-            <option value="" disabled>
-              里程定位
-            </option>
-            {milestones.map((m) => (
-              <option key={m} value={m}>
-                {m === 0
-                  ? '起点'
-                  : m === totalMeters
-                    ? '终点'
-                    : `${m / 1000} km`}
-              </option>
-            ))}
-          </select>
-        )}
-        <div className="scene-timeline">
-          <input
-            type="range"
-            min="0"
-            max="100"
-            step="1"
-            aria-label="轨迹回放进度"
-            aria-valuetext={`${playbackDistance} 公里，GPS 轨迹全长 ${(totalMeters / 1000).toFixed(2)} 公里`}
-            value={Math.round(progress * 100)}
+          <button
+            type="button"
+            className="scene-play"
             disabled={!geometry.route.length}
-            onChange={(event) =>
-              selectPosition(Number(event.target.value) / 100, true)
-            }
-          />
-          <span className="scene-progress" title="GPS 轨迹里程">
-            {playbackDistance} <small>km</small>
-          </span>
+            aria-label={playing ? '暂停轨迹回放' : '播放轨迹回放'}
+            aria-pressed={playing}
+            onClick={togglePlay}
+          >
+            <span
+              aria-hidden="true"
+              className="motion-glyph"
+              key={String(playing)}
+            >
+              {playing ? 'Ⅱ' : '▶'}
+            </span>
+            {playing ? '暂停' : '回放'}
+          </button>
+          <button
+            className="scene-follow"
+            type="button"
+            aria-label="跟随跑者"
+            aria-pressed={following}
+            disabled={!totalMeters}
+            onClick={toggleFollow}
+          >
+            {following ? '退出跟随' : '跟随跑者'}
+          </button>
+          {totalMeters > 0 && (
+            <select
+              className="scene-km-select"
+              aria-label="选择路线里程"
+              value={selectedStop ?? ''}
+              onChange={(event) =>
+                selectPosition(Number(event.target.value) / totalMeters)
+              }
+            >
+              <option value="" disabled>
+                里程定位
+              </option>
+              {milestones.map((m) => (
+                <option key={m} value={m}>
+                  {m === 0
+                    ? '起点'
+                    : m === totalMeters
+                      ? '终点'
+                      : `${m / 1000} km`}
+                </option>
+              ))}
+            </select>
+          )}
+          <div className="scene-timeline">
+            <input
+              type="range"
+              min="0"
+              max="100"
+              step="1"
+              aria-label="轨迹回放进度"
+              aria-valuetext={`${playbackDistance} 公里，GPS 轨迹全长 ${(totalMeters / 1000).toFixed(2)} 公里`}
+              value={Math.round(progress * 100)}
+              disabled={!geometry.route.length}
+              onChange={(event) =>
+                selectPosition(Number(event.target.value) / 100, true)
+              }
+            />
+            <span className="scene-progress" title="GPS 轨迹里程">
+              {playbackDistance} <small>km</small>
+            </span>
+          </div>
         </div>
-      </div>
+      )}
       <div className={`scene-viewport ${dragging ? 'is-dragging' : ''}`}>
         <canvas
           ref={canvasRef}
           className="run-scan-canvas"
-          tabIndex={0}
+          tabIndex={hasRoute ? 0 : -1}
+          aria-hidden={!hasRoute || undefined}
           role="img"
           aria-label="可交互的跑步轨迹。点路线定位，拖动旋转，双指缩放。方向键调整视角，加减号缩放，Home 复位，空格回放。也可使用里程选择框定位。"
           onPointerDown={down}
@@ -904,7 +923,7 @@ export default function RunScan({
               ` · ${displayPoint.altitude.toFixed(1)} m`}
           </div>
         )}
-        {!geometry.route.length && (
+        {!hasRoute && (
           <div className="scene-empty" role="status">
             <strong>
               {activity ? '该活动没有 GPS 轨迹' : '选择一条记录，查看轨迹'}
@@ -916,137 +935,144 @@ export default function RunScan({
             </span>
           </div>
         )}
-        <div className="scene-gesture-hint" aria-hidden="true">
-          点路线定位 <span>·</span> 拖动旋转
-        </div>
+        {hasRoute && (
+          <div className="scene-gesture-hint" aria-hidden="true">
+            点路线定位 <span>·</span> 拖动旋转
+          </div>
+        )}
       </div>
-      <div className="scene-toolbar">
-        <div className="scene-view-switch" role="group" aria-label="轨迹视角">
-          <button
-            type="button"
-            aria-pressed={view === 'perspective'}
-            onClick={() => {
-              setView('perspective');
-              setCamera((c) => ({ ...c, pitch: 0.68 }));
-            }}
-          >
-            立体
-          </button>
-          <button
-            type="button"
-            aria-pressed={view === 'top'}
-            onClick={() => {
-              setView('top');
-              setCamera((c) => ({ ...c, pitch: 1.56 }));
-            }}
-          >
-            俯视
-          </button>
-        </div>
-        <span
-          className="scene-zoom-status"
-          data-yaw={camera.yaw.toFixed(3)}
-          data-pitch={camera.pitch.toFixed(3)}
-        >
-          {(camera.zoom * (following ? 1.75 : 1)).toFixed(1)}×
-        </span>
-        <div className="scene-tool-buttons">
-          <button
-            type="button"
-            aria-label="向左旋转轨迹"
-            title="向左旋转"
-            onClick={() => setCamera((c) => ({ ...c, yaw: c.yaw - 0.2 }))}
-          >
-            ↶
-          </button>
-          <button
-            type="button"
-            aria-label="向右旋转轨迹"
-            title="向右旋转"
-            onClick={() => setCamera((c) => ({ ...c, yaw: c.yaw + 0.2 }))}
-          >
-            ↷
-          </button>
-          <button
-            type="button"
-            aria-label="缩小轨迹"
-            title="缩小"
-            onClick={() =>
-              setCamera((c) => ({
-                ...c,
-                zoom: clamp(c.zoom / 1.15, 0.55, 2.4),
-              }))
-            }
-          >
-            −
-          </button>
-          <button
-            type="button"
-            aria-label="放大轨迹"
-            title="放大"
-            onClick={() =>
-              setCamera((c) => ({
-                ...c,
-                zoom: clamp(c.zoom * 1.15, 0.55, 2.4),
-              }))
-            }
-          >
-            +
-          </button>
-          <button type="button" className="scene-reset" onClick={reset}>
-            复位
-          </button>
-        </div>
-      </div>
-      <div className="scene-elevation-tools">
-        <label>
-          高度比例
-          <select
-            aria-label="高度放大倍数"
-            value={heightScale}
-            disabled={!profile}
-            onChange={(event) => setHeightScale(Number(event.target.value))}
-          >
-            <option value="1">真实比例 1×</option>
-            <option value="3">放大 3×</option>
-            <option value="5">放大 5×</option>
-          </select>
-        </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={smoothed}
-            disabled={!profile}
-            onChange={(event) =>
-              (onSmoothedChange ?? setLocalSmoothed)(event.target.checked)
-            }
-          />
-          海拔降噪
-        </label>
-        <span>
-          {profile
-            ? `${geometry.minElevation.toFixed(1)}–${geometry.maxElevation.toFixed(1)} m`
-            : status === 'loading'
-              ? '读取 GPX 海拔…'
-              : status === 'error'
-                ? '海拔加载失败，显示平面'
-                : '无逐点海拔，显示平面'}
-        </span>
-      </div>
-      <div className="scene-footnote">
-        <span>
-          {profile
-            ? `GPX 记录海拔 · ${heightScale === 1 ? '等比例' : `高度放大 ${heightScale}×`}`
-            : '平面 GPS 轨迹'}
-        </span>
-        <span>
-          {profile
-            ? '点阵为参考平面，不代表周边地形'
-            : geometry.route.length
-              ? '缺少海拔时不推算起伏'
-              : '暂无可用轨迹'}
-        </span>
-      </div>
+      {hasRoute && (
+        <>
+          <div className="scene-toolbar">
+            <div
+              className="scene-view-switch"
+              role="group"
+              aria-label="轨迹视角"
+            >
+              <button
+                type="button"
+                aria-pressed={view === 'perspective'}
+                onClick={() => {
+                  setView('perspective');
+                  setCamera((c) => ({ ...c, pitch: 0.68 }));
+                }}
+              >
+                立体
+              </button>
+              <button
+                type="button"
+                aria-pressed={view === 'top'}
+                onClick={() => {
+                  setView('top');
+                  setCamera((c) => ({ ...c, pitch: 1.56 }));
+                }}
+              >
+                俯视
+              </button>
+            </div>
+            <span
+              className="scene-zoom-status"
+              data-yaw={camera.yaw.toFixed(3)}
+              data-pitch={camera.pitch.toFixed(3)}
+            >
+              {(camera.zoom * (following ? 1.75 : 1)).toFixed(1)}×
+            </span>
+            <div className="scene-tool-buttons">
+              <button
+                type="button"
+                aria-label="向左旋转轨迹"
+                title="向左旋转"
+                onClick={() => setCamera((c) => ({ ...c, yaw: c.yaw - 0.2 }))}
+              >
+                ↶
+              </button>
+              <button
+                type="button"
+                aria-label="向右旋转轨迹"
+                title="向右旋转"
+                onClick={() => setCamera((c) => ({ ...c, yaw: c.yaw + 0.2 }))}
+              >
+                ↷
+              </button>
+              <button
+                type="button"
+                aria-label="缩小轨迹"
+                title="缩小"
+                onClick={() =>
+                  setCamera((c) => ({
+                    ...c,
+                    zoom: clamp(c.zoom / 1.15, 0.55, 2.4),
+                  }))
+                }
+              >
+                −
+              </button>
+              <button
+                type="button"
+                aria-label="放大轨迹"
+                title="放大"
+                onClick={() =>
+                  setCamera((c) => ({
+                    ...c,
+                    zoom: clamp(c.zoom * 1.15, 0.55, 2.4),
+                  }))
+                }
+              >
+                +
+              </button>
+              <button type="button" className="scene-reset" onClick={reset}>
+                复位
+              </button>
+            </div>
+          </div>
+          {profile && (
+            <div className="scene-elevation-tools">
+              <label>
+                高度比例
+                <select
+                  aria-label="高度放大倍数"
+                  value={heightScale}
+                  disabled={!profile}
+                  onChange={(event) =>
+                    setHeightScale(Number(event.target.value))
+                  }
+                >
+                  <option value="1">真实比例 1×</option>
+                  <option value="3">放大 3×</option>
+                  <option value="5">放大 5×</option>
+                </select>
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={smoothed}
+                  disabled={!profile}
+                  onChange={(event) =>
+                    (onSmoothedChange ?? setLocalSmoothed)(event.target.checked)
+                  }
+                />
+                海拔降噪
+              </label>
+              <span>
+                {geometry.minElevation.toFixed(1)}–
+                {geometry.maxElevation.toFixed(1)} m
+              </span>
+            </div>
+          )}
+          <div className="scene-footnote">
+            <span>
+              {profile
+                ? `GPX 记录海拔 · ${heightScale === 1 ? '等比例' : `高度放大 ${heightScale}×`}`
+                : status === 'loading'
+                  ? '正在读取海拔…'
+                  : status === 'error'
+                    ? '海拔暂时无法读取'
+                    : '平面 GPS 轨迹'}
+            </span>
+            <span>{profile ? '点阵 · 水平参考面' : '地面投影'}</span>
+          </div>
+        </>
+      )}
     </div>
   );
 }

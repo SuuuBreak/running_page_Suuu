@@ -233,13 +233,25 @@ export default function FootprintMap({
     if (event.button !== 0 || drag.current) return;
     svg.current?.focus({ preventScroll: true });
     event.currentTarget.setPointerCapture(event.pointerId);
+    const layer = event.currentTarget.querySelector('.footprint-camera');
+    const transform = layer ? getComputedStyle(layer).transform : 'none';
+    const visible =
+      transform === 'none' ? null : new DOMMatrixReadOnly(transform);
+    const startCamera = visible
+      ? {
+          x: visible.e - ((1 - visible.a) * width) / 2,
+          y: visible.f - ((1 - visible.d) * height) / 2,
+          zoom: visible.a,
+        }
+      : camera;
     drag.current = {
       id: event.pointerId,
       x: event.clientX,
       y: event.clientY,
-      camera,
+      camera: startCamera,
       moved: false,
     };
+    setDraggedCamera(startCamera);
   };
   const move = (event: ReactPointerEvent<SVGSVGElement>) => {
     const start = drag.current;

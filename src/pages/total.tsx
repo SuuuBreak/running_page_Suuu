@@ -281,7 +281,7 @@ const HomePage = () => {
     );
     if (!('page' in values)) next.delete('page');
     setHovered(null);
-    setParams(next);
+    setParams(next, { preventScrollReset: true });
   };
   const changeYear = (value: string) =>
     update({ year: value, month: null, bucket: null, run: null });

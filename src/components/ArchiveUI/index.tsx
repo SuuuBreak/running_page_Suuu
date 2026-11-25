@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useRef, type ReactNode } from 'react';
 
 export function ArchivePageHead({
   eyebrow,
@@ -64,12 +64,76 @@ export function ArchiveMetrics({
             {item.label}
             {item.note && <small>{item.note}</small>}
           </span>
-          <strong>
+          <strong key={item.value} className="motion-value">
             {item.value}
             {item.unit && <em>{item.unit}</em>}
           </strong>
         </div>
       ))}
+    </div>
+  );
+}
+
+export function ActivitySearch({
+  value,
+  onChange,
+  label,
+  className,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  label: string;
+  className: string;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  const clear = () => {
+    input.current?.focus({ preventScroll: true });
+    onChange('');
+  };
+  return (
+    <div className={`archive-search ${className}`}>
+      <svg
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        aria-hidden="true"
+      >
+        <circle cx="10.5" cy="10.5" r="6.5" />
+        <path d="m16 16 4 4" />
+      </svg>
+      <input
+        ref={input}
+        type="search"
+        name="q"
+        autoComplete="off"
+        placeholder="搜索日期、城市或活动…"
+        aria-label={label}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (
+            event.key === 'Escape' &&
+            value &&
+            !event.nativeEvent.isComposing
+          ) {
+            event.preventDefault();
+            clear();
+          }
+        }}
+      />
+      {value && (
+        <button
+          type="button"
+          className="archive-search-clear motion-glyph"
+          aria-label="清除搜索"
+          onClick={clear}
+        >
+          ×
+        </button>
+      )}
     </div>
   );
 }

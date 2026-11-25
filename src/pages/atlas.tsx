@@ -1,4 +1,13 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  lazy,
+  memo,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import Layout from '@/components/Layout';
@@ -44,11 +53,89 @@ const routeColor = (distance: number) =>
 const runDetailsUrl = (run: Activity) =>
   `/map?year=${run.start_date_local.slice(0, 4)}&run=${run.run_id}`;
 
-function RoutePreview({ run, close }: { run: Activity; close: () => void }) {
+type GalleryEntry = {
+  run: Activity;
+  path: string;
+  date: string;
+  distanceLabel: string;
+};
+type PreviewToggle = (
+  id: number,
+  expanded: boolean,
+  trigger: HTMLAnchorElement
+) => void;
+
+const RouteTile = memo(function RouteTile({
+  entry: { run, path, date, distanceLabel },
+  expanded,
+  toggle,
+}: {
+  entry: GalleryEntry;
+  expanded: boolean;
+  toggle: PreviewToggle;
+}) {
+  return (
+    <Link
+      className="atlas-route"
+      to={runDetailsUrl(run)}
+      role="button"
+      aria-label={`${date}，${distanceLabel} 公里，预览轨迹`}
+      aria-expanded={expanded}
+      aria-controls={expanded ? 'atlas-route-preview' : undefined}
+      onClick={(event) => {
+        if (
+          event.button ||
+          event.ctrlKey ||
+          event.metaKey ||
+          event.shiftKey ||
+          event.altKey
+        )
+          return;
+        event.preventDefault();
+        toggle(run.run_id, expanded, event.currentTarget);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === ' ') {
+          event.preventDefault();
+          if (!event.repeat) event.currentTarget.click();
+        }
+      }}
+    >
+      <svg width="100" height="100" viewBox="0 0 100 100" aria-hidden="true">
+        <path
+          d={path}
+          fill="none"
+          stroke={routeColor(run.distance)}
+          strokeWidth="1.3"
+          vectorEffect="non-scaling-stroke"
+        />
+      </svg>
+      <span>
+        <time dateTime={run.start_date_local.slice(0, 10)}>{date}</time>
+        <strong>
+          {distanceLabel}
+          <small> km</small>
+        </strong>
+      </span>
+    </Link>
+  );
+});
+
+function RoutePreview({
+  run,
+  close,
+  closing,
+  onClosed,
+}: {
+  run: Activity;
+  close: () => void;
+  closing: boolean;
+  onClosed: () => void;
+}) {
   const panel = useRef<HTMLElement>(null);
   useEffect(() => {
     panel.current?.focus({ preventScroll: true });
-    panel.current?.scrollIntoView({ block: 'nearest' });
+    panel.current?.firstElementChild?.scrollIntoView({ block: 'nearest' });
   }, [run.run_id]);
   return (
     <section
@@ -57,6 +144,12 @@ function RoutePreview({ run, close }: { run: Activity; close: () => void }) {
       ref={panel}
       tabIndex={-1}
       aria-label="轨迹预览"
+      aria-hidden={closing || undefined}
+      inert={closing}
+      data-closing={closing}
+      onAnimationEnd={(event) => {
+        if (closing && event.target === event.currentTarget) onClosed();
+      }}
       onKeyDown={(event) => {
         if (event.key === 'Escape' && !event.defaultPrevented) {
           event.preventDefault();
@@ -125,6 +218,7 @@ function Gallery({
     [atlas, min, sort]
   );
   const [previewId, setPreviewId] = useState<number | null>(null);
+  const [closing, setClosing] = useState(false);
   const [columns, setColumns] = useState(1);
   const grid = useRef<HTMLDivElement>(null);
   const opener = useRef<HTMLAnchorElement>(null);
@@ -144,24 +238,47 @@ function Gallery({
         getComputedStyle(element).gridTemplateColumns.split(/\s+/).length
       );
     measure();
-    const observer = new ResizeObserver(measure);
+    let observedWidth = -1;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry.contentRect.width === observedWidth) return;
+      observedWidth = entry.contentRect.width;
+      measure();
+    });
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
   useEffect(() => {
-    if (!previewRun && previewId !== null) setPreviewId(null);
+    if (!previewRun && previewId !== null) {
+      setPreviewId(null);
+      setClosing(false);
+    }
   }, [previewRun, previewId]);
-  const closePreview = () => {
-    setPreviewId(null);
-    requestAnimationFrame(() => opener.current?.focus());
-  };
+  const closePreview = useCallback(() => {
+    opener.current?.focus({ preventScroll: true });
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      setPreviewId(null);
+    } else {
+      setClosing(true);
+    }
+  }, []);
+  const togglePreview = useCallback<PreviewToggle>(
+    (id, expanded, trigger) => {
+      opener.current = trigger;
+      if (expanded) closePreview();
+      else {
+        setClosing(false);
+        setPreviewId(id);
+      }
+    },
+    [closePreview]
+  );
   const distance = entries.reduce((sum, { run }) => sum + run.distance, 0);
   const withoutRoute =
     runs.filter((r) => r.distance >= min * 1000).length - entries.length;
   const change = (key: string, value: string) => {
     const next = new URLSearchParams(params);
     next.set(key, value);
-    setParams(next);
+    setParams(next, { preventScrollReset: true });
   };
   const download = () => {
     const cols = 10,
@@ -177,62 +294,28 @@ function Gallery({
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
-  const tiles = entries.map(({ run, path, date, distanceLabel }) => {
-    const expanded = previewId === run.run_id;
-    return (
-      <Link
-        className="atlas-route"
-        key={run.run_id}
-        to={runDetailsUrl(run)}
-        role="button"
-        aria-label={`${date}，${distanceLabel} 公里，预览轨迹`}
-        aria-expanded={expanded}
-        aria-controls={expanded ? 'atlas-route-preview' : undefined}
-        onClick={(event) => {
-          if (
-            event.button ||
-            event.ctrlKey ||
-            event.metaKey ||
-            event.shiftKey ||
-            event.altKey
-          )
-            return;
-          event.preventDefault();
-          opener.current = event.currentTarget;
-          if (expanded) closePreview();
-          else setPreviewId(run.run_id);
-        }}
-        onKeyDown={(event) => {
-          if (event.key === ' ') {
-            event.preventDefault();
-            if (!event.repeat) event.currentTarget.click();
-          }
-        }}
-      >
-        <svg width="100" height="100" viewBox="0 0 100 100" aria-hidden="true">
-          <path
-            d={path}
-            fill="none"
-            stroke={routeColor(run.distance)}
-            strokeWidth="1.3"
-            vectorEffect="non-scaling-stroke"
-          />
-        </svg>
-        <span>
-          <time dateTime={run.start_date_local.slice(0, 10)}>{date}</time>
-          <strong>
-            {distanceLabel}
-            <small> km</small>
-          </strong>
-        </span>
-      </Link>
-    );
-  });
+  const tiles = entries.map((entry) => (
+    <RouteTile
+      key={entry.run.run_id}
+      entry={entry}
+      expanded={previewId === entry.run.run_id && !closing}
+      toggle={togglePreview}
+    />
+  ));
   if (previewRun) {
     tiles.splice(
       rowEnd,
       0,
-      <RoutePreview key="preview" run={previewRun} close={closePreview} />
+      <RoutePreview
+        key="preview"
+        run={previewRun}
+        close={closePreview}
+        closing={closing}
+        onClosed={() => {
+          setPreviewId(null);
+          setClosing(false);
+        }}
+      />
     );
   }
   return (
@@ -268,8 +351,10 @@ function Gallery({
           </button>
         </div>
         <p className="atlas-result" role="status">
-          <strong>{entries.length}</strong> 条匹配 /{' '}
-          {formatNumber(distance / 1000, 1)} km
+          <strong key={entries.length} className="motion-value">
+            {entries.length}
+          </strong>{' '}
+          条匹配 / {formatNumber(distance / 1000, 1)} km
         </p>
       </div>
       <div className="atlas-legend">
@@ -393,7 +478,7 @@ export default function Atlas() {
     Object.entries(values).forEach(([k, v]) =>
       v ? next.set(k, v) : next.delete(k)
     );
-    setParams(next);
+    setParams(next, { preventScrollReset: true });
   };
   const [view, setView] = useState({
     longitude: 104,

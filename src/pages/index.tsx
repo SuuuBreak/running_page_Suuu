@@ -16,9 +16,9 @@ import {
 } from 'react-router-dom';
 import { WebMercatorViewport } from '@math.gl/web-mercator';
 import Layout from '@/components/Layout';
-import TerrainSample from '@/components/TerrainSample';
 import RunScan, { decodeRoute, RouteMini } from '@/components/RunScan';
 import {
+  ActivitySearch,
   ArchiveFooter,
   ArchiveMetrics,
   ArchivePageHead,
@@ -26,6 +26,7 @@ import {
 } from '@/components/ArchiveUI';
 import useActivities from '@/hooks/useActivities';
 import ElevationChart from '@/components/ElevationChart';
+import useRouteElevation from '@/hooks/useRouteElevation';
 import {
   Activity,
   convertMovingTime2Sec,
@@ -44,8 +45,6 @@ import {
 import '@/styles/map-workspace.css';
 
 const RunMap = lazy(() => import('@/components/RunMap'));
-// Use the same serialized activity key as the published route-elevation files.
-const TERRAIN_SAMPLE_ID = '9223370282794817000';
 const PAGE_SIZE = 6;
 
 const fitRoute = (
@@ -128,7 +127,11 @@ export default function MapWorkspace() {
       ? requestedMonth
       : 0;
   const search = params.get('q') || '';
-  const [copied, setCopied] = useState('');
+  const [shareResult, setShareResult] = useState<{
+    copied: boolean;
+    url: string;
+  } | null>(null);
+  const copyAttempt = useRef(0);
   const [showContext, setShowContext] = useState(false);
   const [smoothed, setSmoothed] = useState(true);
   const [previewPosition, setPreviewPosition] = useState<number | null>(null);
@@ -142,8 +145,9 @@ export default function MapWorkspace() {
     position: number;
   } | null>(null);
   const routeHeading = useRef<HTMLHeadingElement>(null);
-  const scanModeButton = useRef<HTMLButtonElement>(null);
   const routeScene = useRef<HTMLDivElement>(null);
+  const view = params.get('view');
+  const mode = view === 'map' ? 'map' : 'scan';
 
   const update = (values: Record<string, string | null>, replace = false) => {
     const next = new URLSearchParams(params);
@@ -151,17 +155,14 @@ export default function MapWorkspace() {
       value ? next.set(key, value) : next.delete(key)
     );
     if (!('mapPage' in values)) next.delete('mapPage');
-    if (
-      params.get('view') === 'terrain' &&
-      !('view' in values) &&
-      'run' in values &&
-      values.run !== TERRAIN_SAMPLE_ID
-    )
-      next.delete('view');
-    setParams(next, { replace, state: location.state });
+    setParams(next, {
+      replace,
+      state: location.state,
+      preventScrollReset: true,
+    });
   };
 
-  // A selected activity takes priority over a stale year/month in a shared URL.
+  // Keep the selected activity when normalizing old shared URLs.
   useEffect(() => {
     const linkedYear = linkedRun?.start_date_local.slice(0, 4);
     const wrongYear =
@@ -170,16 +171,18 @@ export default function MapWorkspace() {
       linkedRun &&
       month > 0 &&
       Number(linkedRun.start_date_local.slice(5, 7)) !== month;
-    if (!hashRun && !wrongYear && !wrongMonth) return;
+    const hasUnknownView = view !== null && view !== 'map';
+    if (!hashRun && !wrongYear && !wrongMonth && !hasUnknownView) return;
     const next = new URLSearchParams(params);
     if (hashRun) next.set('run', hashRun);
     if (linkedYear && (hashRun || wrongYear)) next.set('year', linkedYear);
     if (hashRun || wrongMonth) next.delete('month');
     if (hashRun) next.delete('q');
-    next.delete('mapPage');
+    if (hashRun || wrongYear || wrongMonth) next.delete('mapPage');
+    if (hasUnknownView) next.delete('view');
     navigate(
       { pathname: location.pathname, search: `?${next}`, hash: '' },
-      { replace: true, state: location.state }
+      { replace: true, state: location.state, preventScrollReset: true }
     );
   }, [
     hashRun,
@@ -190,6 +193,7 @@ export default function MapWorkspace() {
     location.state,
     navigate,
     params,
+    view,
   ]);
 
   const yearRuns = useMemo(
@@ -201,41 +205,31 @@ export default function MapWorkspace() {
         .sort((a, b) => b.start_date_local.localeCompare(a.start_date_local)),
     [activities, year]
   );
+  const monthRuns = useMemo(
+    () =>
+      month
+        ? yearRuns.filter(
+            (run) => Number(run.start_date_local.slice(5, 7)) === month
+          )
+        : yearRuns,
+    [yearRuns, month]
+  );
   const runs = useMemo(
     () =>
-      yearRuns.filter(
+      monthRuns.filter(
         (run) =>
-          (!month || Number(run.start_date_local.slice(5, 7)) === month) &&
-          (!search ||
-            `${run.name} ${activityName(run)} ${formatDate(run)} ${run.start_date_local} ${locationForRun(run).city}`
-              .toLowerCase()
-              .includes(search.toLowerCase()))
+          !search ||
+          `${run.name} ${activityName(run)} ${formatDate(run)} ${run.start_date_local} ${locationForRun(run).city}`
+            .toLowerCase()
+            .includes(search.trim().toLowerCase())
       ),
-    [yearRuns, month, search]
+    [monthRuns, search]
   );
   const selected =
-    runs.find(
+    monthRuns.find(
       (run) => requestedId !== null && run.run_id === Number(requestedId)
-    ) || runs[0];
-  const terrainSample = useMemo(
-    () =>
-      activities.find(
-        (activity) => String(activity.run_id) === TERRAIN_SAMPLE_ID
-      ),
-    [activities]
-  );
-  const isTerrainSample =
-    !!selected && String(selected.run_id) === TERRAIN_SAMPLE_ID;
-  const view = params.get('view');
-  const mode =
-    view === 'terrain' && isTerrainSample
-      ? 'terrain'
-      : view === 'map'
-        ? 'map'
-        : 'scan';
-  const terrainSampleUrl = terrainSample
-    ? `/map?year=${terrainSample.start_date_local.slice(0, 4)}&run=${TERRAIN_SAMPLE_ID}&view=terrain`
-    : null;
+    ) || monthRuns[0];
+  const elevation = useRouteElevation(selected);
   const pinnedCursor =
     elevationCursor?.runId === selected?.run_id
       ? elevationCursor?.position ?? null
@@ -253,12 +247,12 @@ export default function MapWorkspace() {
   );
   const compactOptions = useMemo(
     () =>
-      runs.map((run) => (
+      monthRuns.map((run) => (
         <option key={run.run_id} value={String(run.run_id)}>
-          {`${run.start_date_local.slice(year === 'all' ? 2 : 5, 10).replaceAll('-', '/')} · ${formatNumber(run.distance / 1000, 1)} km`}
+          {`${run.start_date_local.slice(year === 'all' ? 2 : 5, 10).replaceAll('-', '/')} · ${formatNumber(run.distance / 1000, 1)}\u202fkm`}
         </option>
       )),
-    [runs, year]
+    [monthRuns, year]
   );
   const selectedSeconds = selected
     ? convertMovingTime2Sec(selected.moving_time)
@@ -313,12 +307,22 @@ export default function MapWorkspace() {
     setViewState(initialMapView);
   }, [initialMapView]);
   useEffect(() => {
-    setCopied('');
     setElevationCursor(null);
     setPreviewPosition(null);
     setReplayPosition(null);
     setChartSeek(undefined);
   }, [selected]);
+  useEffect(() => {
+    setShareResult(null);
+    return () => {
+      copyAttempt.current++;
+    };
+  }, [selected, mode]);
+  useEffect(() => {
+    if (!shareResult?.copied) return;
+    const timeout = window.setTimeout(() => setShareResult(null), 1800);
+    return () => window.clearTimeout(timeout);
+  }, [shareResult]);
   useEffect(() => {
     if (mode !== 'scan') setReplayPosition(null);
   }, [mode]);
@@ -347,14 +351,17 @@ export default function MapWorkspace() {
     share.search = new URLSearchParams({
       year: selected.start_date_local.slice(0, 4),
       run: String(selected.run_id),
-      ...(mode === 'terrain' ? { view: 'terrain' } : {}),
     }).toString();
     share.hash = '';
+    const url = share.toString();
+    const attempt = ++copyAttempt.current;
     try {
-      await navigator.clipboard.writeText(share.toString());
-      setCopied('活动链接已复制');
+      await navigator.clipboard.writeText(url);
+      if (attempt === copyAttempt.current)
+        setShareResult({ copied: true, url });
     } catch {
-      setCopied('浏览器未允许复制，可直接复制地址栏中的活动链接。');
+      if (attempt === copyAttempt.current)
+        setShareResult({ copied: false, url });
     }
   };
 
@@ -373,20 +380,6 @@ export default function MapWorkspace() {
         <ArchivePageHead
           title="轨迹探索"
           description="选一场跑步，查看路线和沿途海拔。"
-          aside={
-            !isTerrainSample &&
-            terrainSampleUrl && (
-              <Link
-                className="terrain-sample-link"
-                aria-label="打开真实地形样例"
-                to={terrainSampleUrl}
-                state={location.state}
-              >
-                <span>宜良 · 真实地形样例</span>{' '}
-                <span aria-hidden="true">↗</span>
-              </Link>
-            )
-          }
         />
         {requestedId && !linkedRun && (
           <div className="map-link-notice" role="status">
@@ -420,7 +413,7 @@ export default function MapWorkspace() {
                     {selected ? activityName(selected) : '轨迹等待下一次出发'}
                   </h2>
                 </div>
-                {selected && runs.length > 1 && (
+                {selected && monthRuns.length > 1 && (
                   <label className="map-compact-picker">
                     <span className="sr-only">更换跑步记录</span>
                     <select
@@ -438,7 +431,6 @@ export default function MapWorkspace() {
                 >
                   <button
                     type="button"
-                    ref={scanModeButton}
                     aria-pressed={mode === 'scan'}
                     onClick={() =>
                       update({ view: null, mapPage: String(page) })
@@ -455,33 +447,19 @@ export default function MapWorkspace() {
                   >
                     地理地图
                   </button>
-                  {isTerrainSample && (
-                    <button
-                      type="button"
-                      aria-pressed={mode === 'terrain'}
-                      onClick={() =>
-                        update({
-                          run: TERRAIN_SAMPLE_ID,
-                          view: 'terrain',
-                          mapPage: String(page),
-                        })
-                      }
-                    >
-                      真实地形
-                    </button>
-                  )}
                 </div>
               </div>
               {selected && hasRoute ? (
                 <>
                   <div
-                    className={`map-scene ${mode === 'map' ? 'is-geographic' : mode === 'terrain' ? 'is-terrain' : 'is-pointcloud'}`}
+                    className={`map-scene ${mode === 'map' ? 'is-geographic' : 'is-pointcloud'}`}
                     ref={routeScene}
                   >
                     {mode === 'scan' ? (
                       <RunScan
                         key={selected.run_id}
                         activity={selected}
+                        elevation={elevation}
                         compact
                         cursor={cursor}
                         smoothed={smoothed}
@@ -493,14 +471,6 @@ export default function MapWorkspace() {
                             : undefined
                         }
                         onReplayPosition={setReplayPosition}
-                      />
-                    ) : mode === 'terrain' ? (
-                      <TerrainSample
-                        activity={selected}
-                        onExit={() => {
-                          update({ view: null, mapPage: String(page) });
-                          scanModeButton.current?.focus();
-                        }}
                       />
                     ) : (
                       <Suspense
@@ -533,41 +503,41 @@ export default function MapWorkspace() {
                       </Suspense>
                     )}
                   </div>
-                  <div className="map-scene-caption">
-                    <span>
-                      <i aria-hidden="true" />
-                      {mode === 'scan'
-                        ? 'GPS 路线与 GPX 记录海拔，默认使用水平、垂直一致的比例。'
-                        : mode === 'terrain'
-                          ? '路线沿地表绘制，下方海拔剖面来自本次 GPX 记录。'
-                          : '拖动平移 · 滚轮缩放 · 地理底图与 GPS 轨迹'}
-                    </span>
-                    {mode === 'scan' && pinnedCursor !== null && (
-                      <button
-                        type="button"
-                        className="workspace-link"
-                        onClick={() => {
-                          const chart = document.getElementById(
-                            'run-elevation-profile'
-                          );
-                          chart?.focus({ preventScroll: true });
-                          chart?.scrollIntoView({ block: 'center' });
-                        }}
-                      >
-                        查看对应海拔 ↓
-                      </button>
-                    )}
-                    {mode === 'map' && (
-                      <label className="map-context-toggle">
-                        <input
-                          type="checkbox"
-                          checked={showContext}
-                          onChange={(e) => setShowContext(e.target.checked)}
-                        />
-                        叠加筛选范围内的轨迹
-                      </label>
-                    )}
-                  </div>
+                  {(mode !== 'scan' || pinnedCursor !== null) && (
+                    <div className="map-scene-caption">
+                      {mode === 'map' && (
+                        <span>
+                          <i aria-hidden="true" />
+                          拖动平移 · 滚轮缩放 · 地理底图与 GPS 轨迹
+                        </span>
+                      )}
+                      {mode === 'scan' && pinnedCursor !== null && (
+                        <button
+                          type="button"
+                          className="workspace-link"
+                          onClick={() => {
+                            const chart = document.getElementById(
+                              'run-elevation-profile'
+                            );
+                            chart?.focus({ preventScroll: true });
+                            chart?.scrollIntoView({ block: 'center' });
+                          }}
+                        >
+                          查看对应海拔 ↓
+                        </button>
+                      )}
+                      {mode === 'map' && (
+                        <label className="map-context-toggle">
+                          <input
+                            type="checkbox"
+                            checked={showContext}
+                            onChange={(e) => setShowContext(e.target.checked)}
+                          />
+                          叠加筛选范围内的轨迹
+                        </label>
+                      )}
+                    </div>
+                  )}
                 </>
               ) : (
                 <div className="map-no-route">
@@ -599,6 +569,7 @@ export default function MapWorkspace() {
             </section>
             {selected && hasRoute && (
               <ElevationChart
+                elevation={elevation}
                 key={selected.run_id}
                 activity={selected}
                 cursor={cursor}
@@ -668,30 +639,12 @@ export default function MapWorkspace() {
                 update({ year: value, run: null, month: null, q: null });
               }}
             />
-            <label className="map-search">
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                aria-hidden="true"
-              >
-                <circle cx="10.5" cy="10.5" r="6.5" />
-                <path d="m16 16 4 4" />
-              </svg>
-              <span className="sr-only">搜索地图活动</span>
-              <input
-                type="search"
-                name="q"
-                autoComplete="off"
-                placeholder="搜索日期、城市或活动…"
-                value={search}
-                onChange={(e) => update({ q: e.target.value, run: null }, true)}
-                aria-label="搜索地图活动"
-              />
-            </label>
+            <ActivitySearch
+              className="map-search"
+              label="搜索地图活动"
+              value={search}
+              onChange={(value) => update({ q: value }, true)}
+            />
             {month > 0 && (
               <button
                 className="map-month-filter"
@@ -826,18 +779,39 @@ export default function MapWorkspace() {
                 type="button"
                 className="map-copy-link"
                 onClick={copyLink}
+                aria-label="复制活动链接"
               >
-                复制活动链接 <span aria-hidden="true">↗</span>
+                {shareResult?.copied ? '链接已复制' : '复制活动链接'}
+                <span
+                  aria-hidden="true"
+                  className="motion-glyph"
+                  key={String(shareResult?.copied)}
+                >
+                  {shareResult?.copied ? '✓' : '↗'}
+                </span>
               </button>
               <Link
                 to={`/summary?year=${selected.start_date_local.slice(0, 4)}`}
               >
                 查看这一年的统计
               </Link>
-              <span className="map-copy-status" role="status">
-                {copied}
+              <span className="sr-only" role="status">
+                {shareResult?.copied
+                  ? '活动链接已复制'
+                  : shareResult
+                    ? '可手动复制活动链接'
+                    : ''}
               </span>
             </div>
+            {shareResult && !shareResult.copied && (
+              <input
+                className="workspace-input map-manual-link motion-feedback"
+                aria-label="活动链接"
+                value={shareResult.url}
+                readOnly
+                onFocus={(event) => event.currentTarget.select()}
+              />
+            )}
           </section>
         )}
         <div className="map-scope-overview">
