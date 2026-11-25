@@ -55,7 +55,10 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     # The type of runner that the job will run on
     runs-on: ubuntu-latest
+    env:
+      PAGES_ARTIFACT: pages-artifact-${{ github.run_attempt }}
     permissions:
+      actions: read
       contents: read
       pages: write
       id-token: write
@@ -120,10 +123,22 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           # Upload dist repository
-          name: pages-artifact
+          name: ${{ env.PAGES_ARTIFACT }}
           path: './dist'
+      - name: Wait for Pages artifact metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for attempt in {1..12}; do
+            if count=$(gh api --method GET "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" -f name="$PAGES_ARTIFACT" --jq '.total_count') && [[ "$count" == 1 ]]; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::Pages artifact metadata did not become available"
+          exit 1
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
         with:
-          artifact_name: pages-artifact
+          artifact_name: ${{ env.PAGES_ARTIFACT }}
